@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% load static %}
+
+{% block js %}
+    {{ block.super }}
+    <p>Draw a box and await instructions, your file will be prepared shortly</p>
+    <p>Start date: <input type="text" id="start_date"></p>
+    <p>End date: <input type="text" id="end_date"></p>
+    <h2 id="downloads"></h2>
+    <div id="chart" style="width: 50%; height: 100%; float:left;">
+    </div>
+    <div id="mapid" style="width: 50%; height: 100%; float:right;">
+    </div>
+
+    <script>
+
+        function sync_get(theUrl) {
+            let xmlHttp = new XMLHttpRequest();
+            xmlHttp.open("GET", theUrl, false); // false for synchronous request
+            xmlHttp.send(null);
+            return xmlHttp;
+        }
+
+        function sync_post(theUrl, data) {
+            let xmlHttp = new XMLHttpRequest();
+            xmlHttp.open("POST", theUrl, false); // false for synchronous request
+            xmlHttp.setRequestHeader("Content-Type", "application/json");
+            console.log(data);
+            xmlHttp.send(JSON.stringify(data));
+            return JSON.parse(xmlHttp.responseText);
+        }
+
+        function draw_image(geoj) {
+            let im = sync_post('ndvi/', geoj);
+            console.log(JSON.parse(im['bounds']));
+            image = L.imageOverlay("data:image/png;base64," + im['image'], JSON.parse(im['bounds']));
+            image.addTo(mymap);
+            return image
+        }
+
+        function make_chart(response_data, geoj, boundary) {
+            const parsed = {ndvi: []};
+            var filteredArray = _.filter(response_data,function(obj) {
+                if (obj['Mean NDVI'] === "--") {
+                    return obj.ignore;
+                }
+                else if (parseFloat(obj['Mean NDVI']) < 0.01) {
+                    return obj.ignore;
+                }
+                return obj
+            });
+
+            parsed["ndvi"] = _.map(filteredArray, function (item) {
+                val = parseFloat(item['Mean NDVI']);
+                return [moment.utc(item.Date).valueOf(), val]
+            });
+            Highcharts.chart('chart', {
+                xAxis: {type: 'datetime'},
+                title: {
+                    text: 'NDVI for plot'
+                },
+
+                yAxis: {
+                    title: {
+                        text: 'NDVI'
+                    }
+                },
+
+                series: [{
+                    data: parsed["ndvi"],
+                    tooltip: {
+                        valueDecimals: 2
+                    },
+                    name: 'NDVI'
+                }],
+                plotOptions: {
+                    series: {
+                        cursor: 'pointer',
+                        point: {
+                            events: {
+                                click: function () {
+                                    mymap.removeLayer(image);
+                                    geoj['properties']['layer_name'] = 'greece:' + moment(this.x).toDate().toISOString().split('T')[0];
+                                    image = draw_image(geoj, boundary);
+                                }
+                            }
+                        }
+                    },
+                    spline: {
+                        marker: {
+                            radius: 4,
+                            lineColor: '#666666',
+                            lineWidth: 1
+                        }
+                    }
+                },
+
+            });
+        }
+
+
+        let mymap = L.map('mapid').setView([40.063235, 22.449564], 11);
+        let Esri_WorldImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+
+        mymap.addLayer(Esri_WorldImagery);
+        basemaps = {'Satellite': Esri_WorldImagery};
+
+        let drawnItems = new L.FeatureGroup();
+        mymap.addLayer(drawnItems);
+        L.control.layers(basemaps).addTo(mymap);
+
+        var drawControl = new L.Control.Draw({
+            draw: {
+                polygon: true,
+                marker: false,
+                polyline: false,
+                circlemarker: false,
+                circle: false
+            },
+            edit: {
+                featureGroup: drawnItems,
+                edit: false
+            }
+        });
+
+
+
+        mymap.addControl(drawControl);
+
+        mymap.on(L.Draw.Event.CREATED, function (e) {
+            _.map(drawnItems._layers, function (layer) {
+                drawnItems.removeLayer(layer)
+            });
+            response = sync_get('layers/');
+            if (response.status === 200) {
+                layer_list = JSON.parse(response.responseText);
+            } else {
+                layer_list = [];
+            }
+
+            console.log(layer_list);
+            let layer = e.layer;
+            let geoj = layer.toGeoJSON();
+
+            let stats = _.map(layer_list, function (layer_name) {
+                geoj['properties']['layer_name'] = layer_name;
+                return sync_post('ndvistats/', geoj)
+            });
+
+            drawnItems.addLayer(layer);
+            make_chart(stats, geoj, layer._bounds);
+            console.log(layer._bounds)
+            draw_image(geoj);
+            // add_controls(layer_list);
+        });
+
+    </script>
+
+{% endblock %}

@@ -14,11 +14,24 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.shortcuts import render
 from django.urls import path
 
-from ndvi.views import NDVIView
+from ndvi.views import NDVIView, NDVIStatsView, ListLayersView, TestImageResponse
+
+
+def leaflet_map(request):
+    """
+    Show the slippy map as a view
+    :param request:
+    :return:
+    """
+    return render(request, 'leaflet_map.html')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('ndvi', NDVIView.as_view())
+    path('layers/', ListLayersView.as_view()),
+    path('ndvi/', NDVIView.as_view()),
+    path('ndvistats/', NDVIStatsView.as_view()),
+    path('', leaflet_map)
 ]
