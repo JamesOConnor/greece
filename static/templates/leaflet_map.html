@@ -12,116 +12,9 @@
     <script>
         overlays = [];
 
-        function sync_get(theUrl) {
-            let xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("GET", theUrl, false); // false for synchronous request
-            xmlHttp.send(null);
-            return xmlHttp;
-        }
-
-        function sync_post(theUrl, data) {
-            let xmlHttp = new XMLHttpRequest();
-            xmlHttp.open("POST", theUrl, false); // false for synchronous request
-            xmlHttp.setRequestHeader("Content-Type", "application/json");
-            xmlHttp.send(JSON.stringify(data));
-            if (xmlHttp.status !== 404) {
-                return JSON.parse(xmlHttp.responseText);
-            }
-        }
-
-        function draw_image(geoj) {
-            let im = sync_post('ndvi/', geoj);
-            image = L.imageOverlay("data:image/png;base64," + im['image'], JSON.parse(im['bounds']));
-            image.addTo(mymap);
-            return image
-        }
-
-        function make_chart(response_data, geoj, boundary) {
-            const parsed = {ndvi: [], ranges: []};
-            var filteredArray = _.filter(response_data, function (obj) {
-                if (obj['Mean NDVI'] === "--") {
-                    return obj.ignore;
-                } else if (parseFloat(obj['Mean NDVI']) < 0.01) {
-                    return obj.ignore;
-                }
-                return obj
-            });
-
-            parsed["ndvi"] = _.map(filteredArray, function (item) {
-                val = parseFloat(item['Mean NDVI']);
-                return [moment.utc(item.Date).valueOf(), val]
-            });
-
-            parsed['ranges'] = _.map(filteredArray, function (item) {
-                min_val = parseFloat(item['Min NDVI']);
-                max_val = parseFloat(item['Max NDVI']);
-                return [moment.utc(item.Date).valueOf(), min_val, max_val];
-            });
-
-            Highcharts.chart('chart', {
-                xAxis: {type: 'datetime'},
-                title: {
-                    text: 'NDVI for plot'
-                },
-
-                yAxis: {
-                    title: {
-                        text: 'NDVI'
-                    }
-                },
-
-                series: [{
-                    data: parsed["ndvi"],
-                    tooltip: {
-                        valueDecimals: 2
-                    },
-                    name: 'NDVI'
-                },
-                    {
-                        data: parsed['ranges'],
-                        type: 'arearange',
-                        linkedTo: 'curve',
-                        color: Highcharts.getOptions().colors[0],
-                        fillOpacity: 0.3,
-                        zIndex: 0,
-                        name: 'Min/max',
-                        tooltip: {
-                            valueDecimals: 2
-                        },
-                        marker: {
-                            enabled: false
-                        }
-                    }],
-                plotOptions: {
-                    series: {
-                        cursor: 'pointer',
-                        point: {
-                            events: {
-                                click: function () {
-                                    mymap.removeLayer(image);
-                                    geoj['properties']['layer_name'] = 'greece:' + moment(this.x).toDate().toISOString().split('T')[0];
-                                    image = draw_image(geoj, boundary);
-                                    overlays.push(image);
-                                }
-                            }
-                        }
-                    },
-                    spline: {
-                        marker: {
-                            radius: 4,
-                            lineColor: '#666666',
-                            lineWidth: 1
-                        }
-                    }
-                },
-
-            });
-        }
-
-
         let mymap = L.map('mapid').setView([40.063235, 22.449564], 11);
         let Esri_WorldImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community, overlay images from Sentinel2'
         });
 
         mymap.addLayer(Esri_WorldImagery);
@@ -164,32 +57,48 @@
             let layer = e.layer;
             let geoj = layer.toGeoJSON();
 
-            let stats = _.map(ndvi_layer_list, function (layer_name) {
+            let ndvi_stats = _.map(ndvi_layer_list, function (layer_name) {
                 geoj['properties']['layer_name'] = layer_name;
-                data = sync_post('ndvistats/', geoj);
+                geoj['properties']['image_type'] = 'NDVI';
+                data = sync_post('stats/', geoj);
                 return data;
             });
 
-            let filtered_stats = _.filter(stats, function (result) {
+            let ndvi_filtered_stats = _.filter(ndvi_stats, function (result) {
                 if (result === {}) {
                     return result.ignore;
                 }
                 return result});
 
-            if (filtered_stats.length === 0) {
+            if (ndvi_filtered_stats.length === 0) {
                 return;
             }
-            make_chart(filtered_stats, geoj, layer._bounds);
             overlays.push(draw_image(geoj));
+
+            let ndwi_stats = _.map(ndwi_layer_list, function (layer_name) {
+                geoj['properties']['layer_name'] = layer_name;
+                geoj['properties']['image_type'] = 'NDWI';
+                data = sync_post('stats/', geoj);
+                return data;
+            });
+
+            let ndwi_filtered_stats = _.filter(ndwi_stats, function (result) {
+                if (result === {}) {
+                    return result.ignore;
+                }
+                return result});
+
+            make_chart(ndvi_filtered_stats, ndwi_filtered_stats, geoj, layer._bounds);
         });
 
         var legend = L.control({position: 'bottomright'});
+        var legend2 = L.control({position: 'bottomleft'});
 
-        function getColor(color) {
-            return sync_get('color/?color=' + color).responseText;
+        function getColor(color, image_type) {
+            return sync_get('color/?color=' + color + '&type=' + image_type).responseText;
         }
 
-        legend.onAdd = function (mymap) {
+        legend.onAdd = function () {
 
             var div = L.DomUtil.create('div', 'info legend'),
                 grades = [0, 0.2, 0.4, 0.6, 0.8],
@@ -198,7 +107,23 @@
             // loop through our density intervals and generate a label with a colored square for each interval
             for (var i = 0; i < grades.length; i++) {
                 div.innerHTML +=
-                    '<i style="background:' + getColor(grades[i] + 0.1) + '"></i>' +
+                    '<i style="background:' + getColor(grades[i] + 0.1, 'NDVI') + '"></i>' +
+                    grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+            }
+
+            return div;
+        };
+
+        legend2.onAdd = function () {
+
+            var div = L.DomUtil.create('div', 'info legend'),
+                grades = [-1, -0.8, -0.6, -0.4, -0.2],
+                labels = [];
+
+            // loop through our density intervals and generate a label with a colored square for each interval
+            for (var i = 0; i < grades.length; i++) {
+                div.innerHTML +=
+                    '<i style="background:' + getColor(grades[i] + 1.1, 'NDWI') + '"></i>' +
                     grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
             }
 
@@ -206,6 +131,7 @@
         };
 
         legend.addTo(mymap);
+        legend2.addTo(mymap);
     </script>
 
 {% endblock %}

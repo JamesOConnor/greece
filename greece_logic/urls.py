@@ -17,7 +17,7 @@ from django.contrib import admin
 from django.shortcuts import render
 from django.urls import path
 
-from ndvi.views import NDVIView, NDVIStatsView, ListLayersView, NDVIColorView
+from ndvi.views import ImageView, StatsView, ListLayersView, ColorView
 
 
 def leaflet_map(request):
@@ -31,8 +31,8 @@ def leaflet_map(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('layers/', ListLayersView.as_view()),
-    path('ndvi/', NDVIView.as_view()),
-    path('ndvistats/', NDVIStatsView.as_view()),
+    path('image/', ImageView.as_view()),
+    path('stats/', StatsView.as_view()),
     path('', leaflet_map),
-    path('color/', NDVIColorView.as_view())
+    path('color/', ColorView.as_view())
 ]
