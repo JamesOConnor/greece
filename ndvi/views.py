@@ -24,18 +24,27 @@ from shapely.geometry import Polygon
 FORMAT = '%(asctime)-15s %(clientip)s %(user)-8s %(message)s'
 logging.basicConfig(format=FORMAT)
 
+colormaps = {'NDVI': 'Greens', 'NDWI': 'Blues'}
 
 class ListLayersView(GenericAPIView):
     def get(self, request, *args, **kwargs):
         layers_url = 'http://geoserver:8080/geoserver/rest/layers/'
         layers_on_server = requests.get(layers_url, auth=(settings.GEOSERVER_USER, settings.GEOSERVER_PASS)).json()
-        layer_names = [i['name'] for i in layers_on_server['layers']['layer'] if 'greece' in i['name']]
+        ndvi_names = [i['name'] for i in layers_on_server['layers']['layer'] if 'greece' in i['name']]
+        ndwi_names = [i['name'] for i in layers_on_server['layers']['layer'] if 'ndwi' in i['name']]
+        layer_names = {'ndvi': ndvi_names, 'ndwi': ndwi_names}
         return HttpResponse(json.dumps(layer_names))
 
-class ColorView(GenericAPIView):
+class NDVIColorView(GenericAPIView):
     def get(self, request, *args, **kwargs):
         color = float(self.request.GET.get('color'))
         color_triplet = (np.array(cm.Greens(color)[:3]) * 255).astype(np.uint8)
+        return HttpResponse('#%02x%02x%02x' % tuple(color_triplet))
+
+class NDWIColorView(GenericAPIView):
+    def get(self, request, *args, **kwargs):
+        color = float(self.request.GET.get('color'))
+        color_triplet = (np.array(cm.Blues(color)[:3]) * 255).astype(np.uint8)
         return HttpResponse('#%02x%02x%02x' % tuple(color_triplet))
 
 class NDVIView(GenericAPIView):
@@ -50,9 +59,7 @@ class NDVIView(GenericAPIView):
                                                            flat=True)
         req_url = 'http://geoserver:8080/geoserver/wcs?service=WCS&version=2.0.1&request=getcoverage&coverageid=%s&subset=E(%%22%f%%22,%%22%f%%22)&subset=N(%%22%f%%22,%%22%f%%22)&outputCrs=http://www.opengis.net/def/crs/EPSG/0/3857' % (
             layer_name, min_x, max_x, min_y, max_y)
-        fname = str(uuid.uuid4())
-        urlretrieve(req_url, filename='%s.tif' % fname)
-        with rio.open("%s.tif" % fname) as src:
+        with rio.open(req_url) as src:
             out_image, out_transform = mask.mask(src, [to_geojson(coords_poly)],
                                                  crop=False, nodata=-9999)
             masked_image = ma.masked_equal(out_image, -9999)
@@ -65,7 +72,6 @@ class NDVIView(GenericAPIView):
         im = Image.fromarray(np.uint8(cm.Greens(masked_image[0]) * 255))
         im.save(sio, 'png')
         sio.seek(0)
-        os.remove('%s.tif' % fname)
         return HttpResponse(json.dumps({'image': base64.b64encode(sio.read()).decode(), 'bounds': json.dumps(bounds)}))
 
 

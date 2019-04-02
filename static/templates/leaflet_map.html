@@ -11,6 +11,7 @@
 
     <script>
         overlays = [];
+
         function sync_get(theUrl) {
             let xmlHttp = new XMLHttpRequest();
             xmlHttp.open("GET", theUrl, false); // false for synchronous request
@@ -23,7 +24,9 @@
             xmlHttp.open("POST", theUrl, false); // false for synchronous request
             xmlHttp.setRequestHeader("Content-Type", "application/json");
             xmlHttp.send(JSON.stringify(data));
-            return JSON.parse(xmlHttp.responseText);
+            if (xmlHttp.status !== 404) {
+                return JSON.parse(xmlHttp.responseText);
+            }
         }
 
         function draw_image(geoj) {
@@ -35,11 +38,10 @@
 
         function make_chart(response_data, geoj, boundary) {
             const parsed = {ndvi: [], ranges: []};
-            var filteredArray = _.filter(response_data,function(obj) {
+            var filteredArray = _.filter(response_data, function (obj) {
                 if (obj['Mean NDVI'] === "--") {
                     return obj.ignore;
-                }
-                else if (parseFloat(obj['Mean NDVI']) < 0.01) {
+                } else if (parseFloat(obj['Mean NDVI']) < 0.01) {
                     return obj.ignore;
                 }
                 return obj
@@ -75,21 +77,21 @@
                     },
                     name: 'NDVI'
                 },
-                {
-                  data: parsed['ranges'],
-                  type: 'arearange',
-                  linkedTo: 'curve',
-                  color: Highcharts.getOptions().colors[0],
-                  fillOpacity: 0.3,
-                  zIndex: 0,
-                  name: 'Min/max',
-                  tooltip: {
-                    valueDecimals: 2
-                  },
-                  marker: {
-                    enabled: false
-                  }
-                }],
+                    {
+                        data: parsed['ranges'],
+                        type: 'arearange',
+                        linkedTo: 'curve',
+                        color: Highcharts.getOptions().colors[0],
+                        fillOpacity: 0.3,
+                        zIndex: 0,
+                        name: 'Min/max',
+                        tooltip: {
+                            valueDecimals: 2
+                        },
+                        marker: {
+                            enabled: false
+                        }
+                    }],
                 plotOptions: {
                     series: {
                         cursor: 'pointer',
@@ -144,7 +146,6 @@
         });
 
 
-
         mymap.addControl(drawControl);
 
         mymap.on(L.Draw.Event.CREATED, function (e) {
@@ -153,20 +154,32 @@
             });
             response = sync_get('layers/');
             if (response.status === 200) {
-                layer_list = JSON.parse(response.responseText);
+                ndvi_layer_list = JSON.parse(response.responseText)['ndvi'];
+                ndwi_layer_list = JSON.parse(response.responseText)['ndwi'];
             } else {
-                layer_list = [];
+                ndvi_layer_list = [];
+                ndwi_layer_list = [];
             }
 
             let layer = e.layer;
             let geoj = layer.toGeoJSON();
 
-            let stats = _.map(layer_list, function (layer_name) {
+            let stats = _.map(ndvi_layer_list, function (layer_name) {
                 geoj['properties']['layer_name'] = layer_name;
-                return sync_post('ndvistats/', geoj)
+                data = sync_post('ndvistats/', geoj);
+                return data;
             });
 
-            make_chart(stats, geoj, layer._bounds);
+            let filtered_stats = _.filter(stats, function (result) {
+                if (result === {}) {
+                    return result.ignore;
+                }
+                return result});
+
+            if (filtered_stats.length === 0) {
+                return;
+            }
+            make_chart(filtered_stats, geoj, layer._bounds);
             overlays.push(draw_image(geoj));
         });
 
@@ -185,7 +198,7 @@
             // loop through our density intervals and generate a label with a colored square for each interval
             for (var i = 0; i < grades.length; i++) {
                 div.innerHTML +=
-                    '<i style="background:' + getColor(grades[i] + 0.0001) + '"></i>' +
+                    '<i style="background:' + getColor(grades[i] + 0.1) + '"></i>' +
                     grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
             }
 
