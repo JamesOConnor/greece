@@ -6,7 +6,7 @@ It uses a DockerFile to wrap a simple django app (in hindsight, flash would have
 easier) and uses the [docker-geoserver](https://github.com/kartoza/docker-geoserver) image
 to start geoserver. The demo (if still working) is hosted on a medium AWS instance.
 
-
+![sample](sample.gif)
 
 To do:
 
