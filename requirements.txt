@@ -50,5 +50,5 @@ snuggs==1.4.2
 times==0.7
 traitlets==4.3.2
 tzlocal==1.5.1
-urllib3==1.24.1
+urllib3==1.24.2
 wcwidth==0.1.7
